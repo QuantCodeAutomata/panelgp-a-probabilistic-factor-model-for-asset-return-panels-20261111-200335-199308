@@ -77,7 +77,10 @@ class PanelGPModel(nn.Module):
 
         # --- Factor kernel parameters (paper Eq. 12, C.4) ---
         if factor_kernel == "rbf":
-            ell0 = Q ** 0.5
+            # Paper App. C.4: ell_0 = sqrt(sum_p zeta_p^2), zeta_p^2 the
+            # per-coordinate input variance (1/12 for a Uniform[0,1] input),
+            # matching the loading-kernel initialization two lines above.
+            ell0 = (Q / 12.0) ** 0.5
             self.raw_ell_phi = nn.Parameter(
                 _softplus_inv(torch.full((H, Q), ell0)))
             if isotropic_innovations:
