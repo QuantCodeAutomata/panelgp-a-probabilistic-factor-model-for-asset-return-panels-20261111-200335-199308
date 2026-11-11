@@ -1,0 +1,16 @@
+[
+  {
+    "seed": 20240521,
+    "factor_function_r2": 0.9215687551100058,
+    "loading_function_r2": 0.9936515244976551,
+    "predictive_mean_r2": 0.9890136672187988,
+    "predictive_variance_correlation": 0.7470736562629741,
+    "predictive_variance_ratio": 1.7762064177849302,
+    "sigma_beta2_hat": 0.03582167136913106,
+    "sigma_phi2_hat": 0.2157547665628974,
+    "sigma_r2_hat": 0.09979667821907055,
+    "innovation_r2_factor1": -0.08733921124581578,
+    "innovation_r2_factor2": -0.8069299282541551,
+    "wall_time_sec": 40.68424701690674
+  }
+]

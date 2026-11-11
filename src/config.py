@@ -73,15 +73,17 @@ APP_MIN_ROW_COVERAGE = 0.70         # minimum fraction of characteristics observ
 APP_N_CONTEXT = 6                   # macro-financial context variables, paper Sec. 6.1
 
 APP_H_GRID = list(range(1, 9))     # number of factors H = 1..8 evaluated in the validation grid, paper Sec. 6
-APP_H_GRID_RUN = [1, 3, 5]          # executed H grid for the RBF/RBF factor-number sensitivity (Fig. 3); reduced for CPU runtime, see results/RESULTS.md
+APP_H_GRID_RUN = [5]                # executed H grid; reduced to the paper's chosen H=5 for CPU runtime, see results/RESULTS.md
 APP_H_SELECTED = 5                  # H used for Tables 2-4, paper Sec. 6.4 ("H=5 as compromise")
 APP_KERNEL_PAIRS = [("affine", "constant"), ("affine", "rbf"),
                      ("rbf", "constant"), ("rbf", "rbf")]  # (loading, factor) kernels compared, paper Sec. 6.1
 APP_N_SEEDS_PAPER = 5                # optimization seeds per kernel pair / H, paper Sec. 6.1
 APP_N_SEEDS_RUN = 1                  # executed seeds (reduced universe/compute; see results/RESULTS.md)
-APP_M_INDUCING = 160                 # trainable inducing inputs per component, paper Sec. 6.1 / App. C.3
+APP_M_INDUCING_PAPER = 160           # trainable inducing inputs per component, paper Sec. 6.1 / App. C.3
+APP_M_INDUCING_RUN = 48              # executed inducing points (scaled down with the smaller universe/train length; see results/RESULTS.md)
+APP_M_INDUCING = APP_M_INDUCING_RUN  # default used unless --full is passed
 APP_EPOCHS_PAPER = 500                # training epochs, paper Sec. 6.1
-APP_EPOCHS_RUN = 500                  # executed epochs (kept at the paper value; universe/seeds are reduced instead)
+APP_EPOCHS_RUN = 150                  # executed epochs (reduced optimization budget for CPU runtime; see results/RESULTS.md)
 APP_BATCH_SIZE = 2048                 # minibatch rows, paper App. C.4
 APP_N_MC_SAMPLES = 64                 # factor Monte Carlo samples per likelihood evaluation, paper App. C.4
 APP_LR_VARIATIONAL = 0.01             # Adam learning rate, variational parameters, paper App. C.4
