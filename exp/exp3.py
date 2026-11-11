@@ -147,13 +147,16 @@ def main():
                 m_beta, S_beta = m_beta.numpy(), S_beta.numpy()
                 m_phi, S_phi = m_phi.numpy()[0], S_phi.numpy()[0]
 
-            # V^phi_j (factor-innovation contribution, row-specific) and
-            # V^beta_t (loading-innovation contribution, common to the
-            # month), paper Eq. (26)-(27), used for the variance-calibration
-            # cross-sectional and temporal quintiles (Sec. 6.8).
-            v_phi_row = m_beta ** 2 @ tau_beta + np.einsum("nhh->n", S_beta) * tau_beta.mean()
+            # V^phi_j (factor-innovation contribution, row-specific:
+            # m_beta_j^T D_phi m_beta_j + tr(S_beta_j D_phi)) and V^beta_t
+            # (loading-innovation contribution, common to the month:
+            # m_phi_t^T D_beta m_phi_t + tr(S_phi_t D_beta)), paper Sec. 6.8,
+            # using D_phi=diag(rho) and D_beta=diag(tau_beta) as in
+            # src.evaluation.variance_decomposition (Eq. 26-27).
+            v_phi_row = m_beta ** 2 @ rho + np.einsum("nhh->n", S_beta @ np.diag(rho))
             var_phi_rows.append(v_phi_row)
-            var_beta_by_month.append(float(m_phi @ np.diag(rho) @ m_phi))
+            v_beta_month = float(m_phi @ np.diag(tau_beta) @ m_phi + np.trace(S_phi @ np.diag(tau_beta)))
+            var_beta_by_month.append(v_beta_month)
             err_sq_by_month.append((r - mu) ** 2)
 
             n_sample = min(cfg.ROLL_N_QUINTILES * 2, len(r))

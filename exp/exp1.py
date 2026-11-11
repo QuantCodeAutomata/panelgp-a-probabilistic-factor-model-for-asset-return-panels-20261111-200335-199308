@@ -89,10 +89,17 @@ def run_one_replication(seed: int, n_epochs: int) -> dict:
         # --- Align estimated factors to true ones by least squares (Sec. 5.1) ---
         m_phi_train, S_phi_train = model.realized_factors_at_training_dates()
         Upsilon = align_factors(panel["phi_tilde"], m_phi_train.numpy())
-        Upsilon_inv_T = np.linalg.inv(Upsilon).T
+        Upsilon_inv = np.linalg.inv(Upsilon)
+        Upsilon_inv_T = Upsilon_inv.T
 
+        # Row-stacked factors transform as phi_true_row = phi_est_row @ Upsilon^T
+        # (phi_true = Upsilon @ phi_est in column form). To keep the bilinear
+        # product beta^T phi invariant, beta_true = Upsilon^{-T} @ beta_est in
+        # column form, i.e. beta_true_row = beta_est_row @ Upsilon^{-1} (NOT
+        # Upsilon^{-T}, which would be the correct transpose only if Upsilon
+        # were symmetric).
         m_phi_grid_aligned = m_phi_grid_np @ Upsilon.T
-        m_beta_grid_aligned = m_beta_grid_np @ Upsilon_inv_T
+        m_beta_grid_aligned = m_beta_grid_np @ Upsilon_inv
 
         factor_r2 = np.mean([
             r_squared(phi_true_grid[:, h], m_phi_grid_aligned[:, h]) for h in range(H)

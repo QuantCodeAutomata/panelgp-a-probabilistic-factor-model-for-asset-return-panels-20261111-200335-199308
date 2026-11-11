@@ -215,7 +215,11 @@ def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out = {
         "config": {"full": full, "n_seeds": n_seeds, "n_epochs": n_epochs, "M": M,
-                   "H_selected": H_sel, "H_grid": H_grid, "universe_size": len(raw["char_cols"]) and None},
+                   "H_selected": H_sel, "H_grid": H_grid,
+                   "universe_size": int(raw["returns"]["ticker"].nunique()),
+                   "n_characteristics": len(prep.char_cols),
+                   "train_months": len(prep.train_dates), "valid_months": len(prep.valid_dates),
+                   "eval_months": len(prep.eval_dates)},
         "table2": table2, "figure3": figure3, "pairwise_tests": pairwise, "ard_lengthscales": ard,
         "total_time_sec": total_time,
     }
