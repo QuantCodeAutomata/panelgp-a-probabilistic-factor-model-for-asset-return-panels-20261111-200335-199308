@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 from dotenv import load_dotenv
@@ -317,3 +318,187 @@ def load_sp500_universe(top_n: int, start_date: str, end_date: str,
     ranked = (bars.groupby("ticker")["dollar_volume"].mean()
               .sort_values(ascending=False).reset_index())
     return ranked.head(top_n)
+
+
+CHAR_COLS = [
+    "mom_1m", "mom_3m", "mom_6m", "mom_9m", "mom_12m", "mom_12_1",
+    "vol_1m", "vol_3m", "vol_6m", "vol_12m",
+    "max_daily_ret_1m", "min_daily_ret_1m",
+    "dollar_volume_1m", "amihud_illiq_1m", "price_level",
+    "pct_52w_high", "skew_1m", "beta_mkt_12m",
+]
+CONTEXT_COLS = [
+    "market_return", "term_spread", "default_yield_spread_proxy",
+    "log_realized_market_variance", "average_correlation", "inflation",
+]
+
+
+def _month_end_frame(daily: pd.DataFrame) -> pd.DataFrame:
+    """Daily bars (date, ticker, close, volume) to one row per ticker-month."""
+    daily = daily.copy()
+    daily["month"] = daily["date"].dt.to_period("M")
+    daily["daily_ret"] = daily.groupby("ticker")["close"].pct_change()
+    return daily
+
+
+def _characteristics_for_ticker(g: pd.DataFrame, market_ret_by_month) -> pd.DataFrame:
+    """Builds one row of raw (unranked) characteristics per month for one
+    ticker, from its own daily bars (paper Sec. 6.1 role; the 137 Jensen
+    et al. (2023) WRDS characteristics are substituted by technical
+    characteristics derived from OHLCV bars, see results/RESULTS.md)."""
+    g = g.sort_values("date").reset_index(drop=True)
+    months = g["month"].drop_duplicates().sort_values()
+    month_close = g.groupby("month")["close"].last()
+    rows = []
+    for i, m in enumerate(months):
+        if i < 12:
+            continue  # require a full trailing year of daily history
+        window_12m = g[(g["month"] <= m) & (g["month"] > months.iloc[i - 12])]
+        window_1m = g[g["month"] == m]
+        window_3m = g[(g["month"] <= m) & (g["month"] > months.iloc[i - 3])]
+        window_6m = g[(g["month"] <= m) & (g["month"] > months.iloc[i - 6])]
+        window_9m = g[(g["month"] <= m) & (g["month"] > months.iloc[i - 9])]
+        c0 = month_close.loc[m]
+
+        def mom(n):
+            prior = month_close.loc[months.iloc[i - n]]
+            return c0 / prior - 1.0 if prior > 0 else None
+
+        ret_12_1 = None
+        if i >= 12:
+            prior12 = month_close.loc[months.iloc[i - 12]]
+            prior1 = month_close.loc[months.iloc[i - 1]]
+            ret_12_1 = prior1 / prior12 - 1.0 if prior12 > 0 else None
+
+        daily_1m = window_1m["daily_ret"].dropna()
+        daily_12m = window_12m["daily_ret"].dropna()
+        dollar_vol_1m = (window_1m["close"] * window_1m["volume"]).mean()
+        illiq = (daily_1m.abs() / (window_1m["close"] * window_1m["volume"]).replace(0, pd.NA)).mean()
+        high_252 = g.loc[g["date"] <= g.loc[g["month"] == m, "date"].max(), "close"].tail(252).max()
+
+        mkt = pd.Series({mm: market_ret_by_month.get(mm) for mm in window_12m["month"].unique()})
+        merged = window_12m[["month", "daily_ret"]].copy()
+        merged["mkt_ret"] = merged["month"].map(market_ret_by_month)
+        beta = None
+        valid = merged.dropna()
+        if len(valid) > 20 and valid["mkt_ret"].var() > 0:
+            # cross-sectional market proxy is the trailing-window average daily
+            # return of the whole universe (paper substitute, see RESULTS.md)
+            cov = valid[["daily_ret", "mkt_ret"]].cov().iloc[0, 1]
+            beta = cov / valid["mkt_ret"].var()
+
+        rows.append({
+            "date": m.to_timestamp(how="end").normalize(),
+            "mom_1m": mom(1), "mom_3m": mom(3), "mom_6m": mom(6),
+            "mom_9m": mom(9), "mom_12m": mom(12), "mom_12_1": ret_12_1,
+            "vol_1m": daily_1m.std(), "vol_3m": window_3m["daily_ret"].std(),
+            "vol_6m": window_6m["daily_ret"].std(), "vol_12m": daily_12m.std(),
+            "max_daily_ret_1m": daily_1m.max() if len(daily_1m) else None,
+            "min_daily_ret_1m": daily_1m.min() if len(daily_1m) else None,
+            "dollar_volume_1m": float(np.log(dollar_vol_1m)) if dollar_vol_1m and dollar_vol_1m > 0 else None,
+            "amihud_illiq_1m": float(illiq) if pd.notna(illiq) else None,
+            "price_level": float(np.log(c0)) if c0 > 0 else None,
+            "pct_52w_high": float(c0 / high_252) if high_252 and high_252 > 0 else None,
+            "skew_1m": float(daily_1m.skew()) if len(daily_1m) > 2 else None,
+            "beta_mkt_12m": beta,
+        })
+    return pd.DataFrame(rows)
+
+
+def build_empirical_panel(tickers: list[str], start_date: str, end_date: str,
+                           *, use_cache: bool = True) -> dict:
+    """Monthly panel of OHLCV-derived characteristics, excess returns and
+    macro-financial context for the empirical application (paper Sec. 6.1).
+
+    The 137 Jensen et al. (2023) WRDS characteristics and the Goyal et al.
+    (2024) context are not reachable through the QuantX Dataloader or the
+    Massive API; this function substitutes 18 technical characteristics
+    computed from OHLCV bars and 6 context variables computed from the same
+    bars plus Massive Treasury-yield and CPI data (see results/RESULTS.md,
+    "Deviations from the paper").
+
+    Returns a dict with keys ``returns`` (long: date, ticker, excess_return),
+    ``characteristics`` (long: date, ticker, <CHAR_COLS>), ``context``
+    (indexed by date, <CONTEXT_COLS>), ``char_cols``, ``context_cols``,
+    ``risk_free`` (Series indexed by date, monthly simple rate).
+    """
+    history_start = (pd.Timestamp(start_date) - pd.DateOffset(months=13)).strftime("%Y-%m-%d")
+    daily, meta = load_ohlcv(tickers, history_start, end_date, "1d", use_cache=use_cache)
+    daily = _month_end_frame(daily)
+
+    market_daily = daily.groupby("date")["daily_ret"].mean()
+    market_daily_month = pd.PeriodIndex(market_daily.index, freq="M")
+    market_monthly_ret = (1 + market_daily).groupby(market_daily_month).prod().sub(1)
+
+    char_frames = []
+    for ticker, g in daily.groupby("ticker"):
+        f = _characteristics_for_ticker(g, market_monthly_ret)
+        if not f.empty:
+            f.insert(0, "ticker", ticker)
+            char_frames.append(f)
+    characteristics = pd.concat(char_frames, ignore_index=True)
+    characteristics = characteristics[(characteristics["date"] >= pd.Timestamp(start_date))
+                                       & (characteristics["date"] <= pd.Timestamp(end_date))]
+
+    month_end_close = daily.groupby(["ticker", "month"])["close"].last().reset_index()
+    month_end_close["date"] = month_end_close["month"].dt.to_timestamp(how="end").dt.normalize()
+    month_end_close = month_end_close.sort_values(["ticker", "date"])
+    month_end_close["fwd_ret"] = month_end_close.groupby("ticker")["close"].shift(-1) / month_end_close["close"] - 1.0
+
+    treasury = load_treasury_yields(history_start, end_date, use_cache=use_cache)
+    treasury["month"] = treasury["date"].dt.to_period("M")
+    short_col = "yield_3m" if "yield_3m" in treasury.columns else [c for c in treasury.columns if "3" in c][0]
+    long_col = "yield_10y" if "yield_10y" in treasury.columns else [c for c in treasury.columns if "10" in c][0]
+    t_monthly = treasury.groupby("month")[[short_col, long_col]].last()
+    t_monthly["term_spread"] = t_monthly[long_col] - t_monthly[short_col]
+    rf_monthly = (t_monthly[short_col] / 100.0 / 12.0).rename("risk_free")
+
+    inflation = load_inflation(history_start, end_date, use_cache=use_cache)
+    inflation["month"] = inflation["date"].dt.to_period("M")
+    infl_col = [c for c in inflation.columns if c not in ("date", "month")][0]
+    infl_monthly = inflation.groupby("month")[infl_col].last().rename("inflation").shift(1)
+
+    realized_var = market_daily.groupby(market_daily_month).var()
+    log_realized_var = np.log(realized_var.clip(lower=1e-10)).rename("log_realized_market_variance")
+
+    corr_by_month = {}
+    disp_by_month = {}
+    for m, g in daily.groupby("month"):
+        wide = g.pivot_table(index="date", columns="ticker", values="daily_ret")
+        if wide.shape[1] > 2:
+            c = wide.corr().values
+            iu = np.triu_indices_from(c, k=1)
+            corr_by_month[m] = float(np.nanmean(c[iu]))
+        month_cs_ret = (1 + g.groupby("ticker")["daily_ret"].apply(lambda s: (1 + s).prod() - 1)).sub(0)
+        disp_by_month[m] = float(month_cs_ret.std())
+    avg_corr = pd.Series(corr_by_month, name="average_correlation")
+    # Cross-sectional dispersion of monthly stock returns substitutes for the
+    # default-yield (credit) spread, which needs corporate-bond data not
+    # reachable through the Dataloader or Massive APIs (see RESULTS.md).
+    default_proxy = pd.Series(disp_by_month, name="default_yield_spread_proxy")
+
+    context = pd.concat([
+        market_monthly_ret.rename("market_return"), t_monthly["term_spread"],
+        default_proxy, log_realized_var, avg_corr, infl_monthly,
+    ], axis=1)
+    context.index = context.index.to_timestamp(how="end").normalize()
+    context = context.loc[(context.index >= pd.Timestamp(start_date)) & (context.index <= pd.Timestamp(end_date))]
+
+    returns = month_end_close.loc[
+        (month_end_close["date"] >= pd.Timestamp(start_date)) & (month_end_close["date"] <= pd.Timestamp(end_date)),
+        ["date", "ticker", "fwd_ret"]]
+    rf_by_date = rf_monthly.copy()
+    rf_by_date.index = rf_by_date.index.to_timestamp(how="end").normalize()
+    returns = returns.merge(rf_by_date.rename("rf"), left_on="date", right_index=True, how="left")
+    returns["excess_return"] = returns["fwd_ret"] - returns["rf"].fillna(0.0)
+    returns = returns.dropna(subset=["excess_return"])[["date", "ticker", "excess_return"]]
+
+    return {
+        "returns": returns.reset_index(drop=True),
+        "characteristics": characteristics.reset_index(drop=True),
+        "context": context,
+        "char_cols": CHAR_COLS,
+        "context_cols": CONTEXT_COLS,
+        "risk_free": rf_by_date,
+        "meta": meta,
+    }

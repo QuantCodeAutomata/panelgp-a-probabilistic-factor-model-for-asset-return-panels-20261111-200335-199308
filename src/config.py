@@ -47,12 +47,25 @@ SIM_GAMMA_BETA = 0.1
 # ===========================================================================
 # Experiment 2 & 3: empirical application (paper Section 6)
 # ===========================================================================
-APP_TRAIN_START = "1960-01-01"   # fixed-training estimation start, paper Sec. 6.1
-APP_TRAIN_END = "1989-12-31"     # fixed-training estimation end, paper Sec. 6.1
-APP_VALID_START = "1990-01-01"   # validation window start, paper Sec. 6.1
-APP_VALID_END = "1994-12-31"     # validation window end, paper Sec. 6.1
-APP_EVAL_START = "1995-01-01"    # evaluation window start, paper Sec. 6.1
-APP_EVAL_END = "2024-12-31"      # evaluation window end, paper Sec. 6.1
+APP_TRAIN_START_PAPER = "1960-01-01"   # fixed-training estimation start, paper Sec. 6.1
+APP_TRAIN_END_PAPER = "1989-12-31"     # fixed-training estimation end, paper Sec. 6.1
+APP_VALID_START_PAPER = "1990-01-01"   # validation window start, paper Sec. 6.1
+APP_VALID_END_PAPER = "1994-12-31"     # validation window end, paper Sec. 6.1
+APP_EVAL_START_PAPER = "1995-01-01"    # evaluation window start, paper Sec. 6.1
+APP_EVAL_END_PAPER = "2024-12-31"      # evaluation window end, paper Sec. 6.1
+
+# Executed dates: the QuantX Dataloader's Massive-backed coverage for the
+# candidate universe was found unreliable before approximately 2003 (many
+# "no ticker record" errors for 1960s-1990s requests); see
+# results/RESULTS.md "Deviations from the paper". The executed split keeps
+# the paper's train > valid < eval ordering and relative proportions on the
+# longest window with verified data coverage through the end of 2024.
+APP_TRAIN_START_RUN = "2005-01-01"
+APP_TRAIN_END_RUN = "2015-12-31"       # 132 months
+APP_VALID_START_RUN = "2016-01-01"
+APP_VALID_END_RUN = "2017-12-31"       # 24 months
+APP_EVAL_START_RUN = "2018-01-01"
+APP_EVAL_END_RUN = "2024-12-31"        # 84 months
 
 APP_N_CHARACTERISTICS_PAPER = 137  # characteristics kept (observed >=70% of 1960-1989 stock-months), paper Sec. 6.1
 APP_MIN_CHAR_COVERAGE = 0.70        # minimum per-characteristic coverage in the training period, paper Sec. 6.1
@@ -60,7 +73,10 @@ APP_MIN_ROW_COVERAGE = 0.70         # minimum fraction of characteristics observ
 APP_N_CONTEXT = 6                   # macro-financial context variables, paper Sec. 6.1
 
 APP_H_GRID = list(range(1, 9))     # number of factors H = 1..8 evaluated in the validation grid, paper Sec. 6
+APP_H_GRID_RUN = [1, 3, 5]          # executed H grid for the RBF/RBF factor-number sensitivity (Fig. 3); reduced for CPU runtime, see results/RESULTS.md
 APP_H_SELECTED = 5                  # H used for Tables 2-4, paper Sec. 6.4 ("H=5 as compromise")
+APP_KERNEL_PAIRS = [("affine", "constant"), ("affine", "rbf"),
+                     ("rbf", "constant"), ("rbf", "rbf")]  # (loading, factor) kernels compared, paper Sec. 6.1
 APP_N_SEEDS_PAPER = 5                # optimization seeds per kernel pair / H, paper Sec. 6.1
 APP_N_SEEDS_RUN = 1                  # executed seeds (reduced universe/compute; see results/RESULTS.md)
 APP_M_INDUCING = 160                 # trainable inducing inputs per component, paper Sec. 6.1 / App. C.3
@@ -88,12 +104,13 @@ APP_ANNUALIZATION_MONTHS = 12          # months per year used to annualize Sharp
 # ===========================================================================
 # Experiment 3: rolling re-estimation (paper Section 6.6-6.8)
 # ===========================================================================
-ROLL_WINDOW_MONTHS = 360               # rolling training window length, paper Sec. 6.6
-ROLL_FIRST_FORECAST_YEAR = 1995        # first forecast year, paper Sec. 6.6
-ROLL_LAST_FORECAST_YEAR_PAPER = 2024   # last forecast year in the paper, paper Sec. 6.6
-ROLL_LAST_FORECAST_YEAR_RUN = 2024     # executed last forecast year (reduced via fewer annual windows, see RESULTS.md)
+ROLL_WINDOW_MONTHS_PAPER = 360          # rolling training window length, paper Sec. 6.6
+ROLL_WINDOW_MONTHS_RUN = 120            # executed window length (120 months; data coverage and compute, see RESULTS.md)
+ROLL_FIRST_FORECAST_YEAR_PAPER = 1995   # first forecast year, paper Sec. 6.6
+ROLL_FIRST_FORECAST_YEAR_RUN = 2018     # executed first forecast year, matching APP_EVAL_START_RUN
+ROLL_LAST_FORECAST_YEAR_PAPER = 2024    # last forecast year in the paper, paper Sec. 6.6
+ROLL_LAST_FORECAST_YEAR_RUN = 2024      # executed last forecast year
 ROLL_REESTIMATION_FREQ_YEARS = 1        # annual re-estimation, paper Sec. 6.6
-ROLL_YEARS_STEP_RUN = 6                 # executed spacing between re-estimated windows (paper: 1 year); see results/RESULTS.md
 
 ROLL_TRADING_COST_BPS = 10.0            # trading cost per dollar traded, paper Sec. 6.6 ("10 basis points")
 ROLL_BREAKEVEN_SEARCH_BPS = (0.0, 200.0)  # bracket for the break-even-cost search; not specified in the paper
